@@ -43,9 +43,6 @@ def parse_one_xml_file(doc):
         record_text += " ".join(record.xpath(".//EXTRACT/text()"))
         record_text += " ".join(record.xpath(".//ABSTRACT/text()"))
         record_text += " ".join(record.xpath(".//TOPIC/text()"))
-        # for topic in record.xpath(".//TOPIC/text()"):
-        #     print(topic)
-        #     record_text += " ".join(topic)
         count_word_in_text(record_number, record_text)
 
     print(inverted_index)
