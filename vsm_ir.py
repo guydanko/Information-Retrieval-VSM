@@ -6,6 +6,7 @@ from lxml import etree
 import nltk
 import json
 from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
 
 from nltk.tokenize import word_tokenize
 
@@ -16,15 +17,19 @@ nltk.download('punkt')
 FREQ_KEY = 'FREQ'
 TF_IDF_KEY = 'TF-IDF-SCORE'
 
+porter_stemmer = PorterStemmer()
+
 
 def count_word_in_text(record_number, record_text):
+    record_number = record_number.lstrip("0").rstrip()
     punc_list = '-.;:!?/\,#@$&)(\'"'
     replacement = ' ' * len(punc_list)
     remove_digits = str.maketrans('', '', string.digits)
     record_text = record_text.translate(remove_digits)
     record_text = record_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(record_text)
-    tokens_without_sw = [word.lower() for word in text_tokens if not word.lower() in stopwords.words('english')]
+    tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
+                         not word.lower() in stopwords.words('english')]
     for token in tokens_without_sw:
         if token in inverted_index:
             record_dict = inverted_index[token]
@@ -43,7 +48,7 @@ def parse_one_xml_file(doc):
         record_text += " " + " ".join(record.xpath(".//TITLE/text()"))
         record_text += " " + " ".join(record.xpath(".//EXTRACT/text()"))
         record_text += " " + " ".join(record.xpath(".//ABSTRACT/text()"))
-        # record_text += " " + " ".join(record.xpath(".//TOPIC/text()"))
+        record_text += " " + " ".join(record.xpath(".//TOPIC/text()"))
         count_word_in_text(record_number, record_text)
 
 
@@ -96,16 +101,20 @@ def build_query_vector(query):
     query_text = query.translate(remove_digits)
     query_text = query_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(query_text)
-    tokens_without_sw = [word.lower() for word in text_tokens if not word.lower() in stopwords.words('english')]
+    tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
+                         not word.lower() in stopwords.words('english')]
+    max_count = 0
     for token in tokens_without_sw:
         if token in query_vector:
             query_vector[token] += 1
         else:
             query_vector[token] = 1
-    return query_vector
+        if query_vector[token] > max_count:
+            max_count = query_vector[token]
+    return {k: v / max_count for k, v in query_vector.items()}
 
 
-def print_relevant_documents(query):
+def print_relevant_documents(query, print_to_file=True):
     query_vector = build_query_vector(query)
     query_vector_weight = 0
     doc_to_score = {}
@@ -129,12 +138,55 @@ def print_relevant_documents(query):
     for doc_num in doc_to_score:
         doc_to_score[doc_num] = doc_to_score[doc_num] / (math.sqrt(query_vector_weight * doc_to_weight[doc_num]))
 
-    sorted_docs = sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True)
-    write_file = open('ranked_query_docs.txt', 'w')
-    for doc_num in sorted_docs:
-        if doc_to_score[doc_num] > 0:
-            write_file.write(doc_num + '\n')
-    write_file.close()
+    sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True)]
+    if print_to_file:
+        write_file = open('ranked_query_docs.txt', 'w')
+        for doc_num in sorted_docs:
+            if doc_to_score[doc_num] > 0:
+                write_file.write(doc_num + '\n')
+        write_file.close()
+
+    return sorted_docs[:45]
+
+
+def calc_precision(docs_returned, relevant_docs):
+    return len(docs_returned.intersection(relevant_docs)) / len(docs_returned)
+
+
+def calc_recall(docs_returned, relevant_docs):
+    return len(docs_returned.intersection(relevant_docs)) / len(relevant_docs)
+
+
+def calc_acc_for_all_queries(query_path):
+    count = 0
+    total_precision = 0
+    total_recall = 0
+    total_f1 = 0
+    root = etree.parse(query_path)
+    for query in root.xpath(".//QUERY"):
+        count += 1
+        query_text = ''.join(query.xpath(".//QueryText/text()"))
+        items = query.xpath(".//Item/text()")
+        relevant_docs = set([item.strip() for item in items])
+        docs_returned = set(print_relevant_documents(query_text, False))
+        precision = calc_precision(docs_returned, relevant_docs)
+        recall = calc_recall(docs_returned, relevant_docs)
+        if recall == 0 or precision == 0:
+            total_f1 += 0
+        else:
+            total_f1 += 2 / ((1 / recall) + (1 / precision))
+        total_recall += recall
+        total_precision += precision
+
+    return total_precision / count, total_recall / count, total_f1 / count
+
+
+def calculate_acc(inverted_index_path="vsm_inverted_index.json", query_path="cfc-xml_corrected/cfquery.xml"):
+    parse_inverted_index(inverted_index_path)
+    precision, recall, f1 = calc_acc_for_all_queries(query_path)
+    print("Precision: ", precision)
+    print("Recall: ", recall)
+    print("F1: ", f1)
 
 
 def main():
@@ -149,4 +201,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    calculate_acc()
