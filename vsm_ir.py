@@ -16,8 +16,13 @@ nltk.download('stopwords')
 nltk.download('punkt')
 FREQ_KEY = 'FREQ'
 TF_IDF_KEY = 'TF-IDF-SCORE'
+KEY_FOR_AMOUNT_OF_DOCS = 'AMOUNT_OF_DOCS_IN_CORPUS'
+KEY_FOR_WEIGHT_OF_DOCS = 'DOC_WEIGHT'
+KEY_FOR_DOCUMENT_INFO = 'DOC_INFO'
 
 porter_stemmer = PorterStemmer()
+
+THRESHOLD = 0.1
 
 
 def count_word_in_text(record_number, record_text):
@@ -54,6 +59,7 @@ def parse_one_xml_file(doc):
 
 def update_tfidf_scores():
     doc_to_max_freq = {}
+    doc_to_weights = {}
     for word in inverted_index:
         for doc_num in inverted_index[word]:
             if doc_num in doc_to_max_freq:
@@ -61,14 +67,22 @@ def update_tfidf_scores():
                     doc_to_max_freq[doc_num] = inverted_index[word][doc_num][FREQ_KEY]
             else:
                 doc_to_max_freq[doc_num] = inverted_index[word][doc_num][FREQ_KEY]
+                doc_to_weights[doc_num] = 0
 
     num_documents = len(doc_to_max_freq)
+    inverted_index[KEY_FOR_DOCUMENT_INFO] = {}
+    inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_AMOUNT_OF_DOCS] = num_documents
+    inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_WEIGHT_OF_DOCS] = doc_to_weights
 
     for word in inverted_index:
+        if word == KEY_FOR_DOCUMENT_INFO:
+            continue
         for doc_num in inverted_index[word]:
             tf = inverted_index[word][doc_num][FREQ_KEY] / doc_to_max_freq[doc_num]
             idf = math.log2(num_documents / len(inverted_index[word]))
-            inverted_index[word][doc_num][TF_IDF_KEY] = tf * idf
+            tf_idf = tf * idf
+            inverted_index[word][doc_num][TF_IDF_KEY] = tf_idf
+            inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_WEIGHT_OF_DOCS][doc_num] += tf_idf ** 2
 
 
 def build_inverted_index(path):
@@ -111,7 +125,17 @@ def build_query_vector(query):
             query_vector[token] = 1
         if query_vector[token] > max_count:
             max_count = query_vector[token]
-    return {k: v / max_count for k, v in query_vector.items()}
+    weighted_query = {}
+    for word in query_vector:
+        tf = query_vector[word] / max_count
+        if word in inverted_index:
+            idf = math.log2(
+                inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_AMOUNT_OF_DOCS] + 1 / len(inverted_index[word]))
+        else:
+            idf = math.log2(
+                inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_AMOUNT_OF_DOCS] + 1)
+        weighted_query[word] = tf * idf
+    return weighted_query
 
 
 def print_relevant_documents(query, print_to_file=True):
@@ -127,26 +151,20 @@ def print_relevant_documents(query, print_to_file=True):
                 else:
                     doc_to_score[doc_num] = inverted_index[word][doc_num][TF_IDF_KEY] * query_vector[word]
 
-    doc_to_weight = {}
-    for word in inverted_index:
-        for doc_num in inverted_index[word]:
-            if doc_num in doc_to_weight:
-                doc_to_weight[doc_num] += inverted_index[word][doc_num][TF_IDF_KEY] ** 2
-            else:
-                doc_to_weight[doc_num] = inverted_index[word][doc_num][TF_IDF_KEY] ** 2
-
     for doc_num in doc_to_score:
-        doc_to_score[doc_num] = doc_to_score[doc_num] / (math.sqrt(query_vector_weight * doc_to_weight[doc_num]))
+        doc_to_score[doc_num] = doc_to_score[doc_num] / (
+            math.sqrt(query_vector_weight * inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_WEIGHT_OF_DOCS][doc_num]))
 
-    sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True)]
+    sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True) if
+                   doc_to_score[doc] > THRESHOLD]
+
     if print_to_file:
         write_file = open('ranked_query_docs.txt', 'w')
         for doc_num in sorted_docs:
-            if doc_to_score[doc_num] > 0:
-                write_file.write(doc_num + '\n')
+            write_file.write(doc_num + '\n')
         write_file.close()
 
-    return sorted_docs[:45]
+    return sorted_docs
 
 
 def calc_precision(docs_returned, relevant_docs):
@@ -157,20 +175,46 @@ def calc_recall(docs_returned, relevant_docs):
     return len(docs_returned.intersection(relevant_docs)) / len(relevant_docs)
 
 
+def calc_NDCG(docs_returned, items_to_scores):
+    items_to_gain = {}
+    for item, score in items_to_scores.items():
+        gain = sum(int(rating) for rating in score) / len(score)
+        items_to_gain[item] = gain
+
+    sorted_items = sorted(items_to_gain, key=lambda k: items_to_gain[k], reverse=True)
+    idcg = items_to_gain[sorted_items[0]]
+    for i in range(1, len(sorted_items)):
+        idcg += items_to_gain[sorted_items[i]] / math.log2(i + 1)
+
+    if len(docs_returned) == 0:
+        return 0
+
+    dcg = items_to_gain.get(docs_returned[0], 0)
+    for i in range(1, len(docs_returned)):
+        dcg += items_to_gain.get(docs_returned[i], 0) / math.log2(i + 1)
+
+    return dcg / idcg
+
+
 def calc_acc_for_all_queries(query_path):
     count = 0
     total_precision = 0
     total_recall = 0
     total_f1 = 0
+    total_ndcg = 0
     root = etree.parse(query_path)
     for query in root.xpath(".//QUERY"):
         count += 1
         query_text = ''.join(query.xpath(".//QueryText/text()"))
         items = query.xpath(".//Item/text()")
+        scores = query.xpath(".//Item/@score")
+        items_to_scores = dict(zip(items, scores))
         relevant_docs = set([item.strip() for item in items])
-        docs_returned = set(print_relevant_documents(query_text, False))
-        precision = calc_precision(docs_returned, relevant_docs)
-        recall = calc_recall(docs_returned, relevant_docs)
+        docs_returned = print_relevant_documents(query_text, False)
+        docs_returned_set = set(docs_returned)
+        total_ndcg += calc_NDCG(docs_returned, items_to_scores)
+        precision = calc_precision(docs_returned_set, relevant_docs)
+        recall = calc_recall(docs_returned_set, relevant_docs)
         if recall == 0 or precision == 0:
             total_f1 += 0
         else:
@@ -178,15 +222,16 @@ def calc_acc_for_all_queries(query_path):
         total_recall += recall
         total_precision += precision
 
-    return total_precision / count, total_recall / count, total_f1 / count
+    return total_precision / count, total_recall / count, total_f1 / count, total_ndcg / count
 
 
-def calculate_acc(inverted_index_path="vsm_inverted_index.json", query_path="cfc-xml_corrected/cfquery.xml"):
+def calculate_acc(inverted_index_path="vsm_inverted_index.json", query_path="not_xml_files/cfquery.xml"):
     parse_inverted_index(inverted_index_path)
-    precision, recall, f1 = calc_acc_for_all_queries(query_path)
-    print("Precision: ", precision)
-    print("Recall: ", recall)
-    print("F1: ", f1)
+    precision, recall, f1, ndcg = calc_acc_for_all_queries(query_path)
+    print("Precision: {:0.3f}".format(precision))
+    print("Recall: {:0.3f}".format(recall))
+    print("F1: {:0.3f}".format(f1))
+    print("NDCG: {:0.3f}".format(ndcg))
 
 
 def main():
