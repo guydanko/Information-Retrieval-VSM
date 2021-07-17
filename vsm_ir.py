@@ -3,7 +3,6 @@ import os
 import string
 import sys
 from lxml import etree
-import nltk
 import json
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
@@ -12,8 +11,35 @@ from nltk.tokenize import word_tokenize
 
 # word : {file_number : how many times word in file_number}
 inverted_index = {}
-nltk.download('stopwords')
-nltk.download('punkt')
+stopwords = ['somehow', 'which', 'before', 'three', 'or', 'should', 'might', 'own', 'those', 'to', 'above', 'nor', 'me',
+             'seems', 'after', 'empty', 'put', 'that', 'will', 'while', 'across', 'been', 'something', 'ie', 'from',
+             'eight', 'herein', 'below', 'into', 'fifty', 'it', 'when', 'for', 'fifteen', 'top', 'hers', 'anyway',
+             'between', 'nevertheless', 'the', 'still', 'whither', 'and', 'found', 'our', 'through', 'have',
+             'whereupon', 'without', 'off', 'am', 'at', 'beside', 'four', 'himself', 'move', 'him', 'be', 'out', 'its',
+             'thereupon', 'third', 'well', 'yet', 'such', 'themselves', 'as', 'thereafter', 'what', 'whoever',
+             'sincere', 'until', 'too', 'many', 'not', 'whom', 'again', 'he', 'else', 'latter', 'of', 'on', 'anywhere',
+             'towards', 'done', 'same', 'side', 'almost', 'find', 'upon', 'everything', 'hundred', 'often', 'thru',
+             'twenty', 'are', 'afterwards', 'beforehand', 'bottom', 'except', 'ours', 'forty', 'rather', 'either',
+             'meanwhile', 'since', 'then', 'thereby', 'because', 'once', 'whatever', 'wherein', 'you', 'do',
+             'everywhere', 'during', 'front', 'she', 'detail', 'indeed', 'system', 'thin', 'name', 'his', 'others',
+             'somewhere', 'now', 'whereafter', 'is', 'whereas', 'around', 'more', 'cannot', 'onto', 'seem', 'whole',
+             'much', 'very', 'cry', 'hasnt', 'any', 'sometime', 'alone', 'etc', 'my', 'seeming', 'throughout', 'up',
+             'their', 'anyone', 'can', 'yours', 'thus', 'take', 'nine', 'along', 'itself', 'ten', 'thence', 'there',
+             'enough', 'further', 'go', 'interest', 'due', 'hereafter', 'few', 'back', 'formerly', 'here', 'nobody',
+             'only', 'whenever', 'each', 'moreover', 'anyhow', 'how', 'also', 'un', 'amoungst', 'may', 'hereupon',
+             'otherwise', 'us', 'was', 'give', 'over', 'some', 'under', 'than', 'becoming', 'amongst', 'mine', 'next',
+             'fill', 'first', 'please', 'so', 'though', 'another', 'beyond', 'perhaps', 'see', 'fire', 'yourself',
+             'none', 'whence', 'i', 'has', 'yourselves', 'full', 'noone', 'six', 'all', 'being', 'thick', 'least',
+             'latterly', 'ltd', 'seemed', 'where', 'together', 'eg', 'other', 'show', 'whether', 'herself', 'among',
+             'therefore', 'in', 'this', 'made', 'although', 'against', 'hereby', 'wherever', 'de', 'five', 'already',
+             'could', 'two', 'your', 'never', 'eleven', 'most', 'sixty', 'a', 'however', 'one', 'but', 'her', 'if',
+             'call', 'get', 'sometimes', 'twelve', 'within', 'mill', 'an', 'nowhere', 'must', 'con', 'everyone', 'per',
+             'these', 'bill', 'keep', 'neither', 'myself', 'serious', 'we', 'whereby', 'nothing', 'always', 'amount',
+             'becomes', 'namely', 'behind', 'last', 'mostly', 'therein', 'why', 'even', 'couldnt', 'ever', 'became',
+             'every', 'down', 'about', 'elsewhere', 'ourselves', 'co', 're', 'by', 'who', 'via', 'former', 'several',
+             'toward', 'both', 'would', 'someone', 'no', 'whose', 'less', 'describe', 'hence', 'anything', 'them',
+             'cant', 'they', 'inc', 'part', 'had', 'become', 'were', 'besides', 'with']
+
 FREQ_KEY = 'FREQ'
 TF_IDF_KEY = 'TF-IDF-SCORE'
 KEY_FOR_AMOUNT_OF_DOCS = 'AMOUNT_OF_DOCS_IN_CORPUS'
@@ -22,7 +48,7 @@ KEY_FOR_DOCUMENT_INFO = 'DOC_INFO'
 
 porter_stemmer = PorterStemmer()
 
-THRESHOLD = 0.1
+THRESHOLD = 0.109
 
 
 def count_word_in_text(record_number, record_text):
@@ -34,7 +60,7 @@ def count_word_in_text(record_number, record_text):
     record_text = record_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(record_text)
     tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
-                         not word.lower() in stopwords.words('english')]
+                         not word.lower() in stopwords]
     for token in tokens_without_sw:
         if token in inverted_index:
             record_dict = inverted_index[token]
@@ -87,8 +113,9 @@ def update_tfidf_scores():
 
 def build_inverted_index(path):
     for filename in os.listdir(path):
-        root = etree.parse(path + "\\" + filename)
-        parse_one_xml_file(root)
+        if filename.endswith('.xml'):
+            root = etree.parse(path + "\\" + filename)
+            parse_one_xml_file(root)
 
     update_tfidf_scores()
     # Serializing json
@@ -116,7 +143,7 @@ def build_query_vector(query):
     query_text = query_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(query_text)
     tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
-                         not word.lower() in stopwords.words('english')]
+                         not word.lower() in stopwords]
     max_count = 0
     for token in tokens_without_sw:
         if token in query_vector:
@@ -168,10 +195,14 @@ def print_relevant_documents(query, print_to_file=True):
 
 
 def calc_precision(docs_returned, relevant_docs):
+    if len(docs_returned) == 0:
+        return 0
     return len(docs_returned.intersection(relevant_docs)) / len(docs_returned)
 
 
 def calc_recall(docs_returned, relevant_docs):
+    if len(docs_returned) == 0:
+        return 0
     return len(docs_returned.intersection(relevant_docs)) / len(relevant_docs)
 
 
@@ -215,10 +246,10 @@ def calc_acc_for_all_queries(query_path):
         total_ndcg += calc_NDCG(docs_returned, items_to_scores)
         precision = calc_precision(docs_returned_set, relevant_docs)
         recall = calc_recall(docs_returned_set, relevant_docs)
-        if recall == 0 or precision == 0:
-            total_f1 += 0
-        else:
-            total_f1 += 2 / ((1 / recall) + (1 / precision))
+        try:
+            total_f1 += (2 * precision * recall) / (precision + recall)
+        except ZeroDivisionError:
+            pass
         total_recall += recall
         total_precision += precision
 
@@ -232,6 +263,7 @@ def calculate_acc(inverted_index_path="vsm_inverted_index.json", query_path="not
     print("Recall: {:0.3f}".format(recall))
     print("F1: {:0.3f}".format(f1))
     print("NDCG: {:0.3f}".format(ndcg))
+    return f1
 
 
 def main():
