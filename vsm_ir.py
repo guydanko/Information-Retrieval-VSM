@@ -4,9 +4,7 @@ import string
 import sys
 from lxml import etree
 import json
-from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
-
 from nltk.tokenize import word_tokenize
 
 # word : {file_number : how many times word in file_number}
@@ -39,7 +37,7 @@ stopwords = ['somehow', 'which', 'before', 'three', 'or', 'should', 'might', 'ow
              'every', 'down', 'about', 'elsewhere', 'ourselves', 'co', 're', 'by', 'who', 'via', 'former', 'several',
              'toward', 'both', 'would', 'someone', 'no', 'whose', 'less', 'describe', 'hence', 'anything', 'them',
              'cant', 'they', 'inc', 'part', 'had', 'become', 'were', 'besides', 'with']
-
+stopwords_set = set(stopwords)
 FREQ_KEY = 'FREQ'
 TF_IDF_KEY = 'TF-IDF-SCORE'
 KEY_FOR_AMOUNT_OF_DOCS = 'AMOUNT_OF_DOCS_IN_CORPUS'
@@ -48,8 +46,7 @@ KEY_FOR_DOCUMENT_INFO = 'DOC_INFO'
 
 porter_stemmer = PorterStemmer()
 
-THRESHOLD = 0.109
-
+SCORE_THRESHOLD = 0.08
 
 def count_word_in_text(record_number, record_text):
     record_number = record_number.lstrip("0").rstrip()
@@ -60,7 +57,7 @@ def count_word_in_text(record_number, record_text):
     record_text = record_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(record_text)
     tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
-                         not word.lower() in stopwords]
+                         not word.lower() in stopwords_set]
     for token in tokens_without_sw:
         if token in inverted_index:
             record_dict = inverted_index[token]
@@ -143,7 +140,7 @@ def build_query_vector(query):
     query_text = query_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(query_text)
     tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
-                         not word.lower() in stopwords]
+                         not word.lower() in stopwords_set]
     max_count = 0
     for token in tokens_without_sw:
         if token in query_vector:
@@ -157,7 +154,7 @@ def build_query_vector(query):
         tf = query_vector[word] / max_count
         if word in inverted_index:
             idf = math.log2(
-                inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_AMOUNT_OF_DOCS] + 1 / len(inverted_index[word]))
+                (inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_AMOUNT_OF_DOCS] + 1) / len(inverted_index[word]))
         else:
             idf = math.log2(
                 inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_AMOUNT_OF_DOCS] + 1)
@@ -183,7 +180,15 @@ def print_relevant_documents(query, print_to_file=True):
             math.sqrt(query_vector_weight * inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_WEIGHT_OF_DOCS][doc_num]))
 
     sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True) if
-                   doc_to_score[doc] > THRESHOLD]
+                   doc_to_score[doc] > SCORE_THRESHOLD]
+
+    # sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True)][:30]
+
+    # if len(sorted_docs) > AMOUNT_THRESHOLD:
+    #     sorted_docs = sorted_docs[:AMOUNT_THRESHOLD]
+    # else:
+    #     sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True) if
+    #                    doc_to_score[doc] > 0.08]
 
     if print_to_file:
         write_file = open('ranked_query_docs.txt', 'w')
@@ -278,5 +283,5 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    calculate_acc()
+    main()
+
