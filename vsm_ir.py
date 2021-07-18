@@ -182,14 +182,6 @@ def print_relevant_documents(query, print_to_file=True):
     sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True) if
                    doc_to_score[doc] > SCORE_THRESHOLD]
 
-    # sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True)][:30]
-
-    # if len(sorted_docs) > AMOUNT_THRESHOLD:
-    #     sorted_docs = sorted_docs[:AMOUNT_THRESHOLD]
-    # else:
-    #     sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True) if
-    #                    doc_to_score[doc] > 0.08]
-
     if print_to_file:
         write_file = open('ranked_query_docs.txt', 'w')
         for doc_num in sorted_docs:
