@@ -98,6 +98,8 @@ def update_tfidf_scores():
     doc_to_weights = {}
     # Calculate max frequency for each document
     for word in inverted_index:
+        if word == KEY_FOR_DOCUMENT_INFO:
+            continue
         for doc_num in inverted_index[word]:
             if doc_num in doc_to_max_freq:
                 if inverted_index[word][doc_num][FREQ_KEY] > doc_to_max_freq[doc_num]:
@@ -321,4 +323,5 @@ def main():
 
 
 if __name__ == '__main__':
+    calculate_acc()
     main()
