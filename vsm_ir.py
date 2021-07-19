@@ -48,16 +48,23 @@ porter_stemmer = PorterStemmer()
 
 SCORE_THRESHOLD = 0.08
 
+
 def count_word_in_text(record_number, record_text):
+    """
+    Update the inverted index for each record
+       """
     record_number = record_number.lstrip("0").rstrip()
+    # Clean all punctuation and digits from tokens
     punc_list = '-.;:!?/\,#@$&)(\'"'
     replacement = ' ' * len(punc_list)
     remove_digits = str.maketrans('', '', string.digits)
     record_text = record_text.translate(remove_digits)
     record_text = record_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(record_text)
+    # Remove stopwords and stem tokens
     tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
                          not word.lower() in stopwords_set]
+    # Update frequency of each word in inverted index
     for token in tokens_without_sw:
         if token in inverted_index:
             record_dict = inverted_index[token]
@@ -70,6 +77,9 @@ def count_word_in_text(record_number, record_text):
 
 
 def parse_one_xml_file(doc):
+    """
+       Extract all relevant text from a record
+          """
     for record in doc.xpath(".//RECORD"):
         record_number = " ".join(record.xpath(".//RECORDNUM/text()"))
         record_text = ""
@@ -81,8 +91,12 @@ def parse_one_xml_file(doc):
 
 
 def update_tfidf_scores():
+    """
+       Calculate TF-IDF for each word in each document and update inverted index
+          """
     doc_to_max_freq = {}
     doc_to_weights = {}
+    # Calculate max frequency for each document
     for word in inverted_index:
         for doc_num in inverted_index[word]:
             if doc_num in doc_to_max_freq:
@@ -91,12 +105,12 @@ def update_tfidf_scores():
             else:
                 doc_to_max_freq[doc_num] = inverted_index[word][doc_num][FREQ_KEY]
                 doc_to_weights[doc_num] = 0
-
+    # Update document info in inverted index
     num_documents = len(doc_to_max_freq)
     inverted_index[KEY_FOR_DOCUMENT_INFO] = {}
     inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_AMOUNT_OF_DOCS] = num_documents
     inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_WEIGHT_OF_DOCS] = doc_to_weights
-
+    # Update scores to TF * IDF and total weight of each document vector
     for word in inverted_index:
         if word == KEY_FOR_DOCUMENT_INFO:
             continue
@@ -109,6 +123,9 @@ def update_tfidf_scores():
 
 
 def build_inverted_index(path):
+    """
+       Parse each xml file in given directory
+          """
     for filename in os.listdir(path):
         if filename.endswith('.xml'):
             root = etree.parse(path + "\\" + filename)
@@ -118,7 +135,7 @@ def build_inverted_index(path):
     # Serializing json
     json_inverted_index = json.dumps(inverted_index)
 
-    # Writing to sample.json
+    # Writing inverted index to file
     with open("vsm_inverted_index.json", "w") as outfile:
         outfile.write(json_inverted_index)
     outfile.close()
@@ -132,16 +149,21 @@ def parse_inverted_index(path):
 
 
 def build_query_vector(query):
+    """ Calculate query vector TF-IDF
+       """
     query_vector = {}
+    # Remove punctuation and digits
     punc_list = '-.;:!?/\,#@$&)(\'"'
     replacement = ' ' * len(punc_list)
     remove_digits = str.maketrans('', '', string.digits)
     query_text = query.translate(remove_digits)
     query_text = query_text.translate(str.maketrans(punc_list, replacement))
     text_tokens = word_tokenize(query_text)
+    # Remove stopwords and stem tokens
     tokens_without_sw = [porter_stemmer.stem(word.lower()) for word in text_tokens if
                          not word.lower() in stopwords_set]
     max_count = 0
+    # Count appearances of tokens
     for token in tokens_without_sw:
         if token in query_vector:
             query_vector[token] += 1
@@ -150,6 +172,7 @@ def build_query_vector(query):
         if query_vector[token] > max_count:
             max_count = query_vector[token]
     weighted_query = {}
+    # Calculate TF-IFD for each token in query
     for word in query_vector:
         tf = query_vector[word] / max_count
         if word in inverted_index:
@@ -163,9 +186,14 @@ def build_query_vector(query):
 
 
 def print_relevant_documents(query, print_to_file=True):
+    """ Retrieve relevant documents from VSM based on query
+        print_to_file: If true, results will be exported to ranked_query_docs.txt
+       """
+    # Get the vector of the query
     query_vector = build_query_vector(query)
     query_vector_weight = 0
     doc_to_score = {}
+    # Calculate cosine similarity of query to relevant documents and calculate query vector total weight
     for word in query_vector:
         query_vector_weight += query_vector[word] ** 2
         if word in inverted_index:
@@ -174,14 +202,14 @@ def print_relevant_documents(query, print_to_file=True):
                     doc_to_score[doc_num] += inverted_index[word][doc_num][TF_IDF_KEY] * query_vector[word]
                 else:
                     doc_to_score[doc_num] = inverted_index[word][doc_num][TF_IDF_KEY] * query_vector[word]
-
+    # Normalize cosine similarity
     for doc_num in doc_to_score:
         doc_to_score[doc_num] = doc_to_score[doc_num] / (
             math.sqrt(query_vector_weight * inverted_index[KEY_FOR_DOCUMENT_INFO][KEY_FOR_WEIGHT_OF_DOCS][doc_num]))
-
+    # Filter documents based on score (return only documents with score above the set threshold)
     sorted_docs = [doc.lstrip("0") for doc in sorted(doc_to_score, key=lambda k: doc_to_score[k], reverse=True) if
                    doc_to_score[doc] > SCORE_THRESHOLD]
-
+    # Export results to file
     if print_to_file:
         write_file = open('ranked_query_docs.txt', 'w')
         for doc_num in sorted_docs:
@@ -191,19 +219,30 @@ def print_relevant_documents(query, print_to_file=True):
     return sorted_docs
 
 
+# Functions for evaluation of VSM
+
 def calc_precision(docs_returned, relevant_docs):
+    """
+       Calculate the precision for specific query
+          """
     if len(docs_returned) == 0:
         return 0
     return len(docs_returned.intersection(relevant_docs)) / len(docs_returned)
 
 
 def calc_recall(docs_returned, relevant_docs):
+    """
+        Calculate the recall for specific query
+            """
     if len(docs_returned) == 0:
         return 0
     return len(docs_returned.intersection(relevant_docs)) / len(relevant_docs)
 
 
 def calc_NDCG(docs_returned, items_to_scores):
+    """
+        Calculate the NDCG for specific query
+            """
     items_to_gain = {}
     for item, score in items_to_scores.items():
         gain = sum(int(rating) for rating in score) / len(score)
@@ -225,6 +264,10 @@ def calc_NDCG(docs_returned, items_to_scores):
 
 
 def calc_acc_for_all_queries(query_path):
+    """
+        Calculate metrics for all queries
+        F1, NDCG, Precision, Recall
+            """
     count = 0
     total_precision = 0
     total_recall = 0
@@ -254,6 +297,9 @@ def calc_acc_for_all_queries(query_path):
 
 
 def calculate_acc(inverted_index_path="vsm_inverted_index.json", query_path="not_xml_files/cfquery.xml"):
+    """
+        Print all metrics for queries
+            """
     parse_inverted_index(inverted_index_path)
     precision, recall, f1, ndcg = calc_acc_for_all_queries(query_path)
     print("Precision: {:0.3f}".format(precision))
@@ -276,4 +322,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
